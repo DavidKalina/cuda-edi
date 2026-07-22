@@ -1,0 +1,9 @@
+{
+  "jobType": "OUTBOUND_214",
+  "ediConfigId": "cfg_example_partner",
+  "idempotencyKey": "OUTBOUND_214:cfg_example_partner:SHIP-1001:milestone:AF",
+  "businessKeys": {
+    "shipmentInternalNumber": "SHIP-1001",
+    "milestoneCode": "AF"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "Records": [
+    {
+      "messageId": "sample-1",
+      "receiptHandle": "sample",
+      "body": "{\"jobId\":\"00000000-0000-0000-0000-000000000001\",\"jobType\":\"OUTBOUND_214\",\"ediConfigId\":\"cfg_example_partner\",\"idempotencyKey\":\"OUTBOUND_214:cfg_example_partner:SHIP-1001:milestone:AF\",\"orderingGroup\":\"cfg_example_partner#SHIP-1001\",\"businessKeys\":{\"shipmentInternalNumber\":\"SHIP-1001\",\"milestoneCode\":\"AF\"}}",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "0",
+        "SenderId": "AIDEXAMPLE",
+        "ApproximateFirstReceiveTimestamp": "0",
+        "MessageGroupId": "cfg_example_partner#SHIP-1001",
+        "MessageDeduplicationId": "OUTBOUND_214:cfg_example_partner:SHIP-1001:milestone:AF"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "0",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-west-2:123456789012:edi-outbound-dev.fifo",
+      "awsRegion": "us-west-2"
+    }
+  ]
+}
