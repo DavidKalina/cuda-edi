@@ -87,3 +87,11 @@ _Avoid_: Independent uncoordinated counters in both runtimes; relying on Legacyâ
 **Partner Mailbox**:
 The partner-facing SFTP endpoint where CUDA drops outbound Artifacts and partners drop inbound files. Remains SFTPGo; not the job runtime.
 _Avoid_: Treating Nest or cuda-edi compute as the partner endpoint; replacing SFTPGo as part of this redesign
+
+**Map**:
+Partner-specific JSONata transforms stored on EDI Config (e.g. `ts214`, `ts204`). First customization layer above builtins for field and layout quirks.
+_Avoid_: Embedding partner maps only in worker source; using n8n as the map layer
+
+**Partner extension**:
+Optional typed code module for bespoke partner logic that Maps cannot sanely express. Selected by EDI Config; runs inside the cuda-edi workflow (same job), not as a separate orchestration runtime.
+_Avoid_: n8n (or any visual workflow engine) as EDI orchestration; webhook round-trips as the default bespoke path
