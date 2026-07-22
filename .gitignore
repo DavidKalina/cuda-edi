@@ -8,5 +8,6 @@ dist/
 .claude/
 cdk.out/
 *.js.map
+*.tsbuildinfo
 !jest.config.js
 !**/build.js
