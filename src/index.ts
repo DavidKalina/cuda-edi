@@ -46,6 +46,8 @@ export * from "./mailbox/in-memory-partner-mailbox-client.js";
 export * from "./mailbox/partner-mailbox-client.js";
 export * from "./mailbox/resolve-outbound-214-path.js";
 export * from "./mailbox/sftp-partner-mailbox-client.js";
+export * from "./producer/legacy-outbound-client.js";
+export * from "./producer/outbound-214-producer.js";
 export * from "./outbound/outbound-processor.js";
 export * from "./outbound/workflows/outbound-214.js";
 export * from "./store/edi-config-store.js";
