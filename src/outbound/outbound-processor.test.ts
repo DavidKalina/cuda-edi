@@ -4,6 +4,8 @@ import { InMemoryControlNumberAllocator } from "../control-number/in-memory-cont
 import { SHIPMENT_BUSINESS_KEY } from "../domain/edi-job.js";
 import { enqueue } from "../enqueue/enqueue-service.js";
 import { InMemoryOutboundQueue } from "../enqueue/in-memory-outbound-queue.js";
+import { InMemoryPartnerMailboxClient } from "../mailbox/in-memory-partner-mailbox-client.js";
+import { resolveOutbound214MailboxPath } from "../mailbox/resolve-outbound-214-path.js";
 import { JsonataMapExecutor } from "../map/jsonata-map-executor.js";
 import { InMemoryEdiConfigStore } from "../store/in-memory-edi-config-store.js";
 import { InMemoryEdiJobStore } from "../store/in-memory-edi-job-store.js";
@@ -30,6 +32,7 @@ function outboundDeps() {
   );
   const mapExecutor = new JsonataMapExecutor();
   const artifactStore = new InMemoryArtifactStore();
+  const partnerMailboxClient = new InMemoryPartnerMailboxClient();
   return {
     store,
     outboundQueue,
@@ -37,6 +40,7 @@ function outboundDeps() {
     controlNumberAllocator,
     mapExecutor,
     artifactStore,
+    partnerMailboxClient,
     enqueueDeps: {
       store,
       outboundQueue,
@@ -49,6 +53,7 @@ function outboundDeps() {
       controlNumberAllocator,
       mapExecutor,
       artifactStore,
+      partnerMailboxClient,
       now: () => FIXED_TIME,
     },
   };
@@ -71,6 +76,7 @@ describe("processOutboundJob", () => {
       outboundQueue,
       artifactStore,
       controlNumberAllocator,
+      partnerMailboxClient,
     } = outboundDeps();
     const queued = await enqueue(enqueueDeps, outbound214Input());
 
@@ -110,6 +116,15 @@ describe("processOutboundJob", () => {
     expect(x12).toContain("GS*QM*CUDACORP*PARTNERA*20260723*1200*500001*");
     expect(x12).toContain("ST*214*43~");
 
+    const mailboxPath = resolveOutbound214MailboxPath(
+      partnerAEdiConfig(),
+      result,
+    );
+    expect(partnerMailboxClient.files.size).toBe(1);
+    expect(partnerMailboxClient.getFile(mailboxPath)?.content).toEqual(
+      stored!.content,
+    );
+
     await expect(
       controlNumberAllocator.allocate("cfg-partner-a", "isa"),
     ).resolves.toBe("1000002");
@@ -128,6 +143,7 @@ describe("processOutboundJob", () => {
     );
     const mapExecutor = new JsonataMapExecutor();
     const artifactStore = new InMemoryArtifactStore();
+    const partnerMailboxClient = new InMemoryPartnerMailboxClient();
     const enqueueDeps = {
       store,
       outboundQueue,
@@ -152,6 +168,7 @@ describe("processOutboundJob", () => {
       controlNumberAllocator,
       mapExecutor,
       artifactStore,
+      partnerMailboxClient,
       now: () => FIXED_TIME,
     };
 
@@ -169,8 +186,13 @@ describe("processOutboundJob", () => {
   });
 
   it("skips generate when an x12 artifact ref already exists on replay", async () => {
-    const { enqueueDeps, processorDeps, outboundQueue, controlNumberAllocator } =
-      outboundDeps();
+    const {
+      enqueueDeps,
+      processorDeps,
+      outboundQueue,
+      controlNumberAllocator,
+      partnerMailboxClient,
+    } = outboundDeps();
     await enqueue(enqueueDeps, outbound214Input());
     const message = outboundQueue.messages[0]!.message;
 
@@ -184,6 +206,7 @@ describe("processOutboundJob", () => {
     });
 
     expect(second).toEqual(first);
+    expect(partnerMailboxClient.files.size).toBe(1);
     await expect(
       controlNumberAllocator.allocate("cfg-partner-a", "isa"),
     ).resolves.toBe("1000002");
@@ -214,6 +237,7 @@ describe("processOutboundJob", () => {
     );
     const mapExecutor = new JsonataMapExecutor();
     const artifactStore = new InMemoryArtifactStore();
+    const partnerMailboxClient = new InMemoryPartnerMailboxClient();
     const now = FIXED_TIME;
     await store.put({
       id: "job-997",
@@ -236,6 +260,7 @@ describe("processOutboundJob", () => {
           controlNumberAllocator,
           mapExecutor,
           artifactStore,
+          partnerMailboxClient,
           now: () => FIXED_TIME,
         },
         {
@@ -263,6 +288,7 @@ describe("processOutboundJob", () => {
       ),
       mapExecutor: new JsonataMapExecutor(),
       artifactStore: new InMemoryArtifactStore(),
+      partnerMailboxClient: new InMemoryPartnerMailboxClient(),
       now: () => FIXED_TIME,
     };
 
@@ -274,5 +300,47 @@ describe("processOutboundJob", () => {
         durableExecutionId: DURABLE_EXECUTION_ID,
       }),
     ).rejects.toThrow("EDI Config not found: cfg-partner-a");
+
+    const failed = await processorDeps.store.getById("job-new-1");
+    expect(failed).toMatchObject({
+      status: "failed",
+      step: OUTBOUND_214_GENERATE_STEP,
+    });
+  });
+
+  it("fails with deliver step when Partner Mailbox upload fails", async () => {
+    const { enqueueDeps, outboundQueue } = outboundDeps();
+    const processorDeps = {
+      store: enqueueDeps.store,
+      ediConfigStore: new InMemoryEdiConfigStore([partnerAEdiConfig()]),
+      controlNumberAllocator: new InMemoryControlNumberAllocator(
+        partnerAControlNumberSeeds(),
+      ),
+      mapExecutor: new JsonataMapExecutor(),
+      artifactStore: new InMemoryArtifactStore(),
+      partnerMailboxClient: {
+        exists: async () => false,
+        putFile: async () => {
+          throw new Error("SFTP upload failed");
+        },
+      },
+      now: () => FIXED_TIME,
+    };
+
+    await enqueue(enqueueDeps, outbound214Input());
+
+    await expect(
+      processOutboundJob(processorDeps, {
+        message: outboundQueue.messages[0]!.message,
+        durableExecutionId: DURABLE_EXECUTION_ID,
+      }),
+    ).rejects.toThrow("SFTP upload failed");
+
+    const failed = await processorDeps.store.getById("job-new-1");
+    expect(failed).toMatchObject({
+      status: "failed",
+      step: OUTBOUND_214_DELIVER_STEP,
+    });
+    expect(failed?.artifactRefs.some((ref) => ref.kind === "x12")).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import type { ArtifactStore } from "../artifact/artifact-store.js";
 import type { ControlNumberAllocator } from "../control-number/control-number-allocator.js";
 import type { EdiJob, JobType } from "../domain/edi-job.js";
+import type { PartnerMailboxClient } from "../mailbox/partner-mailbox-client.js";
 import type { MapExecutor } from "../map/map-executor.js";
 import type { EdiConfigStore } from "../store/edi-config-store.js";
 import type { EdiJobStore } from "../store/edi-job-store.js";
@@ -14,6 +15,7 @@ export interface OutboundProcessorDeps {
   controlNumberAllocator: ControlNumberAllocator;
   mapExecutor: MapExecutor;
   artifactStore: ArtifactStore;
+  partnerMailboxClient: PartnerMailboxClient;
   now?: () => string;
 }
 
@@ -60,5 +62,11 @@ export async function processOutboundJob(
     durableExecutionId: input.durableExecutionId,
   });
 
-  return workflow(deps, running);
+  try {
+    return await workflow(deps, running);
+  } catch (error) {
+    const latest = (await deps.store.getById(job.id)) ?? running;
+    await patchJob(deps, latest, { status: "failed" });
+    throw error;
+  }
 }

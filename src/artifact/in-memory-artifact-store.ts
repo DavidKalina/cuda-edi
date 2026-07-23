@@ -48,4 +48,8 @@ export class InMemoryArtifactStore implements ArtifactStore {
   getByKey(key: string): StoredArtifact | undefined {
     return this.artifacts.get(key);
   }
+
+  async get(ref: ArtifactRef): Promise<Uint8Array | undefined> {
+    return this.artifacts.get(ref.key)?.content;
+  }
 }

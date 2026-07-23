@@ -12,4 +12,5 @@ export interface StoreArtifactInput {
 
 export interface ArtifactStore {
   put(input: StoreArtifactInput): Promise<ArtifactRef>;
+  get(ref: ArtifactRef): Promise<Uint8Array | undefined>;
 }
