@@ -3,7 +3,7 @@ import { SHIPMENT_BUSINESS_KEY } from "../domain/edi-job.js";
 import { enqueue } from "../enqueue/enqueue-service.js";
 import { InMemoryOutboundQueue } from "../enqueue/in-memory-outbound-queue.js";
 import { OUTBOUND_214_DELIVER_STEP } from "../outbound/workflows/outbound-214.js";
-import { redrive } from "../redrive/redrive-service.js";
+import { RedriveNotAllowedError, redrive } from "../redrive/redrive-service.js";
 import { InMemoryEdiJobStore } from "../store/in-memory-edi-job-store.js";
 import {
   createRedriveHandler,
@@ -105,6 +105,28 @@ describe("redrive Lambda handler", () => {
     expect(outboundQueue.messages).toHaveLength(2);
     expect(outboundQueue.messages[1]!.messageGroupId).toBe(
       "cfg-partner-a#SHP-1001",
+    );
+  });
+
+  it("rejects dead jobs at the handler boundary", async () => {
+    const { redriveDeps } = handlerDeps();
+    const invoke = createRedriveHandler(() => redriveDeps);
+
+    await redriveDeps.store.put({
+      id: "job-dead-1",
+      status: "dead",
+      jobType: "OUTBOUND_214",
+      ediConfigId: "cfg-partner-a",
+      businessKeys: { [SHIPMENT_BUSINESS_KEY]: "SHP-1001" },
+      idempotencyKey: "milestone:SHP-1001:214",
+      orderingGroup: "cfg-partner-a#SHP-1001",
+      artifactRefs: [],
+      createdAt: FIXED_TIME,
+      updatedAt: FIXED_TIME,
+    });
+
+    await expect(invoke({ jobId: "job-dead-1" })).rejects.toBeInstanceOf(
+      RedriveNotAllowedError,
     );
   });
 
