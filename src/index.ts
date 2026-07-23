@@ -1,3 +1,5 @@
+export * from "./artifact/artifact-store.js";
+export * from "./artifact/in-memory-artifact-store.js";
 export * from "./control-number/control-number-allocator.js";
 export * from "./control-number/in-memory-control-number-allocator.js";
 export * from "./domain/control-number.js";
@@ -42,3 +44,4 @@ export * from "./store/dynamo-edi-job-store.js";
 export * from "./store/in-memory-edi-config-store.js";
 export * from "./store/edi-job-store.js";
 export * from "./store/in-memory-edi-job-store.js";
+export * from "./x12/x12-builder.js";
