@@ -1,3 +1,6 @@
+export * from "./control-number/control-number-allocator.js";
+export * from "./control-number/in-memory-control-number-allocator.js";
+export * from "./domain/control-number.js";
 export * from "./domain/edi-config.js";
 export * from "./domain/edi-job.js";
 export * from "./sdk/enqueue-client.js";
