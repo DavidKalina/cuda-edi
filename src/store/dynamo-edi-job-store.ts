@@ -40,6 +40,10 @@ function toItem(job: EdiJob): Record<string, unknown> {
     updatedAt: job.updatedAt,
     ...(job.payloadRef ? { payloadRef: job.payloadRef } : {}),
     ...(job.handedOff ? { handedOff: true } : {}),
+    ...(job.step ? { step: job.step } : {}),
+    ...(job.durableExecutionId
+      ? { durableExecutionId: job.durableExecutionId }
+      : {}),
   };
 }
 
@@ -59,6 +63,10 @@ function fromItem(item: Record<string, unknown>): EdiJob {
       ? { payloadRef: item.payloadRef as EdiJob["payloadRef"] }
       : {}),
     ...(item.handedOff === true ? { handedOff: true } : {}),
+    ...(typeof item.step === "string" ? { step: item.step } : {}),
+    ...(typeof item.durableExecutionId === "string"
+      ? { durableExecutionId: item.durableExecutionId }
+      : {}),
   };
 }
 
