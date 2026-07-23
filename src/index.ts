@@ -8,6 +8,7 @@ export * from "./domain/control-number.js";
 export * from "./domain/edi-config.js";
 export * from "./domain/edi-job.js";
 export * from "./sdk/enqueue-client.js";
+export * from "./sdk/redrive-client.js";
 export * from "./enqueue/enqueue-service.js";
 export * from "./enqueue/in-memory-outbound-queue.js";
 export * from "./enqueue/outbound-queue.js";
@@ -24,6 +25,17 @@ export {
   type EnqueueHandlerEvent,
   type EnqueueHandlerResponse,
 } from "./lambda/enqueue-handler.js";
+export {
+  createRedriveHandler,
+  createRedriveHandlerDeps,
+  handler as redriveHandler,
+  readRedriveHandlerEnv,
+  resetRedriveHandlerDepsCacheForTests,
+  resolveDefaultRedriveHandlerDepsForTests,
+  type RedriveHandlerEnv,
+  type RedriveHandlerEvent,
+  type RedriveHandlerResponse,
+} from "./lambda/redrive-handler.js";
 export {
   createOutboundDurableHandler,
   createOutboundHandlerDeps,
