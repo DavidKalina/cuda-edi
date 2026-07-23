@@ -13,7 +13,13 @@ export async function runOutbound214Workflow(
   let current = await patchJob(deps, job, {
     step: OUTBOUND_214_GENERATE_STEP,
   });
-  // Stub generate — real implementation will mint X12 and store artifact refs.
+
+  const ediConfig = await deps.ediConfigStore.getById(current.ediConfigId);
+  if (!ediConfig) {
+    throw new Error(`EDI Config not found: ${current.ediConfigId}`);
+  }
+  // Stub generate — real implementation will apply map, mint control numbers,
+  // build X12, and store artifact refs via deps.controlNumberAllocator.
 
   current = await patchJob(deps, current, {
     step: OUTBOUND_214_DELIVER_STEP,

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { InMemoryControlNumberAllocator } from "../control-number/in-memory-control-number-allocator.js";
 import { SHIPMENT_BUSINESS_KEY } from "../domain/edi-job.js";
 import { enqueue } from "../enqueue/enqueue-service.js";
 import { InMemoryOutboundQueue } from "../enqueue/in-memory-outbound-queue.js";
+import { InMemoryEdiConfigStore } from "../store/in-memory-edi-config-store.js";
 import { InMemoryEdiJobStore } from "../store/in-memory-edi-job-store.js";
+import {
+  partnerAControlNumberSeeds,
+  partnerAEdiConfig,
+} from "../test-fixtures/partner-a-edi-config.js";
 import {
   createOutboundDurableHandler,
   createOutboundHandlerDeps,
@@ -22,6 +28,10 @@ const DURABLE_EXECUTION_ID =
 function handlerDeps() {
   const store = new InMemoryEdiJobStore();
   const outboundQueue = new InMemoryOutboundQueue();
+  const ediConfigStore = new InMemoryEdiConfigStore([partnerAEdiConfig()]);
+  const controlNumberAllocator = new InMemoryControlNumberAllocator(
+    partnerAControlNumberSeeds(),
+  );
   return {
     store,
     outboundQueue,
@@ -33,6 +43,8 @@ function handlerDeps() {
     },
     processorDeps: {
       store,
+      ediConfigStore,
+      controlNumberAllocator,
       now: () => FIXED_TIME,
     },
   };
@@ -74,11 +86,13 @@ describe("readOutboundHandlerEnv", () => {
 });
 
 describe("createOutboundHandlerDeps", () => {
-  it("wires DynamoDB store", () => {
+  it("wires DynamoDB store and outbound processor deps", () => {
     const deps = createOutboundHandlerDeps({
       ediJobTableName: "edi-jobs",
     });
     expect(deps.store).toBeDefined();
+    expect(deps.ediConfigStore).toBeDefined();
+    expect(deps.controlNumberAllocator).toBeDefined();
   });
 });
 

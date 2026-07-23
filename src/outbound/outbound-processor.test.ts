@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { InMemoryControlNumberAllocator } from "../control-number/in-memory-control-number-allocator.js";
 import { SHIPMENT_BUSINESS_KEY } from "../domain/edi-job.js";
 import { enqueue } from "../enqueue/enqueue-service.js";
 import { InMemoryOutboundQueue } from "../enqueue/in-memory-outbound-queue.js";
+import { InMemoryEdiConfigStore } from "../store/in-memory-edi-config-store.js";
 import { InMemoryEdiJobStore } from "../store/in-memory-edi-job-store.js";
+import {
+  partnerAControlNumberSeeds,
+  partnerAEdiConfig,
+} from "../test-fixtures/partner-a-edi-config.js";
 import {
   OUTBOUND_214_DELIVER_STEP,
   OUTBOUND_214_GENERATE_STEP,
@@ -15,9 +21,15 @@ const DURABLE_EXECUTION_ID = "durable-exec-abc123";
 function outboundDeps() {
   const store = new InMemoryEdiJobStore();
   const outboundQueue = new InMemoryOutboundQueue();
+  const ediConfigStore = new InMemoryEdiConfigStore([partnerAEdiConfig()]);
+  const controlNumberAllocator = new InMemoryControlNumberAllocator(
+    partnerAControlNumberSeeds(),
+  );
   return {
     store,
     outboundQueue,
+    ediConfigStore,
+    controlNumberAllocator,
     enqueueDeps: {
       store,
       outboundQueue,
@@ -26,6 +38,8 @@ function outboundDeps() {
     },
     processorDeps: {
       store,
+      ediConfigStore,
+      controlNumberAllocator,
       now: () => FIXED_TIME,
     },
   };
@@ -69,6 +83,10 @@ describe("processOutboundJob", () => {
     const steps: string[] = [];
     const store = new InMemoryEdiJobStore();
     const outboundQueue = new InMemoryOutboundQueue();
+    const ediConfigStore = new InMemoryEdiConfigStore([partnerAEdiConfig()]);
+    const controlNumberAllocator = new InMemoryControlNumberAllocator(
+      partnerAControlNumberSeeds(),
+    );
     const enqueueDeps = {
       store,
       outboundQueue,
@@ -89,6 +107,8 @@ describe("processOutboundJob", () => {
           return store.put(job);
         },
       },
+      ediConfigStore,
+      controlNumberAllocator,
       now: () => FIXED_TIME,
     };
 
@@ -123,6 +143,10 @@ describe("processOutboundJob", () => {
 
   it("rejects unsupported outbound job types", async () => {
     const store = new InMemoryEdiJobStore();
+    const ediConfigStore = new InMemoryEdiConfigStore([partnerAEdiConfig()]);
+    const controlNumberAllocator = new InMemoryControlNumberAllocator(
+      partnerAControlNumberSeeds(),
+    );
     const now = FIXED_TIME;
     await store.put({
       id: "job-997",
@@ -139,7 +163,7 @@ describe("processOutboundJob", () => {
 
     await expect(
       processOutboundJob(
-        { store, now: () => FIXED_TIME },
+        { store, ediConfigStore, controlNumberAllocator, now: () => FIXED_TIME },
         {
           message: {
             jobId: "job-997",
@@ -153,5 +177,26 @@ describe("processOutboundJob", () => {
         },
       ),
     ).rejects.toThrow("unsupported outbound job type: OUTBOUND_997");
+  });
+
+  it("fails when EDI Config is missing during generate", async () => {
+    const { enqueueDeps, outboundQueue } = outboundDeps();
+    const processorDeps = {
+      store: enqueueDeps.store,
+      ediConfigStore: new InMemoryEdiConfigStore(),
+      controlNumberAllocator: new InMemoryControlNumberAllocator(
+        partnerAControlNumberSeeds(),
+      ),
+      now: () => FIXED_TIME,
+    };
+
+    await enqueue(enqueueDeps, outbound214Input());
+
+    await expect(
+      processOutboundJob(processorDeps, {
+        message: outboundQueue.messages[0]!.message,
+        durableExecutionId: DURABLE_EXECUTION_ID,
+      }),
+    ).rejects.toThrow("EDI Config not found: cfg-partner-a");
   });
 });

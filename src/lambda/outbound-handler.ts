@@ -5,13 +5,40 @@ import {
   type DurableExecutionHandler,
   withDurableExecution,
 } from "@aws/durable-execution-sdk-js";
+import type { ControlNumberAllocator } from "../control-number/control-number-allocator.js";
 import type { EdiJob } from "../domain/edi-job.js";
 import type { OutboundQueueMessage } from "../enqueue/outbound-queue.js";
 import {
   processOutboundJob,
   type OutboundProcessorDeps,
 } from "../outbound/outbound-processor.js";
+import type { EdiConfigStore } from "../store/edi-config-store.js";
 import { DynamoEdiJobStore } from "../store/dynamo-edi-job-store.js";
+
+function unconfiguredEdiConfigStore(): EdiConfigStore {
+  return {
+    async getById(id: string): Promise<never> {
+      throw new Error(
+        `EdiConfigStore is not configured for outbound handler (missing config: ${id})`,
+      );
+    },
+  };
+}
+
+function unconfiguredControlNumberAllocator(): ControlNumberAllocator {
+  return {
+    async allocate(): Promise<never> {
+      throw new Error(
+        "ControlNumberAllocator is not configured for outbound handler",
+      );
+    },
+    async allocateSet(): Promise<never> {
+      throw new Error(
+        "ControlNumberAllocator is not configured for outbound handler",
+      );
+    },
+  };
+}
 
 /** Minimal SQS FIFO trigger shape — only fields the handler reads. */
 export interface OutboundSqsRecord {
@@ -40,6 +67,8 @@ export function createOutboundHandlerDeps(
   config: OutboundHandlerEnv,
   clients?: {
     dynamo?: DynamoDBDocumentClient;
+    ediConfigStore?: EdiConfigStore;
+    controlNumberAllocator?: ControlNumberAllocator;
   },
 ): OutboundProcessorDeps {
   const dynamo =
@@ -50,6 +79,10 @@ export function createOutboundHandlerDeps(
 
   return {
     store: new DynamoEdiJobStore(dynamo, config.ediJobTableName),
+    ediConfigStore:
+      clients?.ediConfigStore ?? unconfiguredEdiConfigStore(),
+    controlNumberAllocator:
+      clients?.controlNumberAllocator ?? unconfiguredControlNumberAllocator(),
   };
 }
 
