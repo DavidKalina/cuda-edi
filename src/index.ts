@@ -1,3 +1,4 @@
+export * from "./domain/edi-config.js";
 export * from "./domain/edi-job.js";
 export * from "./sdk/enqueue-client.js";
 export * from "./enqueue/enqueue-service.js";
@@ -31,6 +32,8 @@ export {
 } from "./lambda/outbound-handler.js";
 export * from "./outbound/outbound-processor.js";
 export * from "./outbound/workflows/outbound-214.js";
+export * from "./store/edi-config-store.js";
 export * from "./store/dynamo-edi-job-store.js";
+export * from "./store/in-memory-edi-config-store.js";
 export * from "./store/edi-job-store.js";
 export * from "./store/in-memory-edi-job-store.js";
