@@ -44,6 +44,7 @@ function toItem(job: EdiJob): Record<string, unknown> {
     ...(job.durableExecutionId
       ? { durableExecutionId: job.durableExecutionId }
       : {}),
+    ...(job.attempt !== undefined ? { attempt: job.attempt } : {}),
   };
 }
 
@@ -67,6 +68,7 @@ function fromItem(item: Record<string, unknown>): EdiJob {
     ...(typeof item.durableExecutionId === "string"
       ? { durableExecutionId: item.durableExecutionId }
       : {}),
+    ...(typeof item.attempt === "number" ? { attempt: item.attempt } : {}),
   };
 }
 

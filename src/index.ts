@@ -12,6 +12,7 @@ export * from "./enqueue/enqueue-service.js";
 export * from "./enqueue/in-memory-outbound-queue.js";
 export * from "./enqueue/outbound-queue.js";
 export * from "./enqueue/sqs-outbound-queue.js";
+export * from "./redrive/redrive-service.js";
 export {
   createEnqueueHandler,
   createEnqueueHandlerDeps,

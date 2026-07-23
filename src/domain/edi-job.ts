@@ -29,6 +29,8 @@ export interface EdiJob {
   handedOff?: boolean;
   /** AWS Lambda durable execution id for ops correlation. */
   durableExecutionId?: string;
+  /** Monotonic attempt counter; starts at 1 on Enqueue, increments on Redrive. */
+  attempt?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -64,4 +66,19 @@ export function computeOrderingGroup(
 /** Non-dead jobs are eligible for idempotent replay. */
 export function isIdempotencyReplayable(status: JobStatus): boolean {
   return status !== "dead";
+}
+
+/** Returns the job's attempt number (defaults to 1 when unset). */
+export function jobAttempt(job: EdiJob): number {
+  return job.attempt ?? 1;
+}
+
+/** Explicit Redrive is allowed only for failed jobs. */
+export function isRedrivable(status: JobStatus): boolean {
+  return status === "failed";
+}
+
+/** Auto-redrive policy gate — dead and non-failed jobs are excluded. */
+export function isAutoRedrivable(status: JobStatus): boolean {
+  return isRedrivable(status);
 }
