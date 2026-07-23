@@ -9,3 +9,4 @@ export * from "./store/dynamo-edi-job-store.js";
 export * from "./store/edi-job-store.js";
 export * from "./store/in-memory-edi-job-store.js";
 export * from "./lab/lab-fifo-queue.js";
+export * from "./lab/local-enqueue-transport.js";
