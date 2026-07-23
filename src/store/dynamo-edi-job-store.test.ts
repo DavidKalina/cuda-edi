@@ -99,7 +99,7 @@ describe("DynamoEdiJobStore", () => {
     });
   });
 
-  it("returns null for dead jobs on idempotency lookup", async () => {
+  it("returns null when only dead jobs match the idempotency key", async () => {
     const job = sampleJob({ status: "dead" });
     ddbMock.on(QueryCommand).resolves({
       Items: [
@@ -113,5 +113,72 @@ describe("DynamoEdiJobStore", () => {
     expect(
       await store.findByIdempotencyKey("OUTBOUND_214", job.idempotencyKey),
     ).toBeNull();
+  });
+
+  it("returns a replayable job when a dead row is returned before a live one", async () => {
+    const deadJob = sampleJob({ id: "job-dead", status: "dead" });
+    const liveJob = sampleJob({ id: "job-live", status: "queued" });
+    ddbMock
+      .on(QueryCommand)
+      .resolvesOnce({
+        Items: [
+          {
+            ...deadJob,
+            idempotencyPk: idempotencyPk(deadJob.jobType, deadJob.idempotencyKey),
+          },
+        ],
+        LastEvaluatedKey: { id: deadJob.id },
+      })
+      .resolvesOnce({
+        Items: [
+          {
+            ...liveJob,
+            idempotencyPk: idempotencyPk(liveJob.jobType, liveJob.idempotencyKey),
+          },
+        ],
+      });
+
+    expect(
+      await store.findByIdempotencyKey("OUTBOUND_214", liveJob.idempotencyKey),
+    ).toEqual(liveJob);
+    expect(ddbMock.commandCalls(QueryCommand)).toHaveLength(2);
+  });
+
+  it("claims an idempotency key with a conditional put", async () => {
+    ddbMock.on(PutCommand).resolves({});
+
+    await expect(
+      store.claimIdempotencyKey("OUTBOUND_214", "milestone:SHP-1001:214", "job-new"),
+    ).resolves.toEqual({ outcome: "claimed" });
+
+    expect(ddbMock.commandCalls(PutCommand)[0]!.args[0].input).toMatchObject({
+      TableName: TABLE_NAME,
+      Item: {
+        id: idempotencyPk("OUTBOUND_214", "milestone:SHP-1001:214"),
+        jobId: "job-new",
+      },
+      ConditionExpression: "attribute_not_exists(id)",
+    });
+  });
+
+  it("returns conflict when the idempotency key is already claimed by a live job", async () => {
+    const job = sampleJob({ id: "job-live" });
+    ddbMock
+      .on(PutCommand)
+      .rejectsOnce({ name: "ConditionalCheckFailedException" })
+      .resolves({});
+    ddbMock
+      .on(GetCommand)
+      .resolvesOnce({ Item: { id: idempotencyPk(job.jobType, job.idempotencyKey), jobId: job.id } })
+      .resolvesOnce({
+        Item: {
+          ...job,
+          idempotencyPk: idempotencyPk(job.jobType, job.idempotencyKey),
+        },
+      });
+
+    await expect(
+      store.claimIdempotencyKey("OUTBOUND_214", job.idempotencyKey, "job-new"),
+    ).resolves.toEqual({ outcome: "conflict", jobId: "job-live" });
   });
 });

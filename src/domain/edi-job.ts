@@ -23,6 +23,8 @@ export interface EdiJob {
   orderingGroup: string;
   payloadRef?: PayloadRef;
   artifactRefs: ArtifactRef[];
+  /** Set after the job is successfully sent to the outbound/inbound queue. */
+  handedOff?: boolean;
   createdAt: string;
   updatedAt: string;
 }

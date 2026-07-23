@@ -7,6 +7,8 @@ import {
   createEnqueueHandler,
   createEnqueueHandlerDeps,
   readEnqueueHandlerEnv,
+  resetEnqueueHandlerDepsCacheForTests,
+  resolveDefaultEnqueueHandlerDepsForTests,
 } from "./enqueue-handler.js";
 
 const FIXED_TIME = "2026-07-23T12:00:00.000Z";
@@ -107,5 +109,18 @@ describe("enqueue Lambda handler", () => {
       idempotencyKey: "milestone:SHP-1001:214",
     });
     expect(job.id).toBe("job-lambda-1");
+  });
+
+  it("reuses module-scope deps when using the default resolver", () => {
+    resetEnqueueHandlerDepsCacheForTests();
+    process.env.EDI_JOB_TABLE_NAME = "edi-jobs";
+    process.env.EDI_OUTBOUND_QUEUE_URL = "https://sqs.example/edi-outbound.fifo";
+
+    const first = resolveDefaultEnqueueHandlerDepsForTests();
+    const second = resolveDefaultEnqueueHandlerDepsForTests();
+
+    expect(first).toBe(second);
+    expect(first.store).toBe(second.store);
+    expect(first.outboundQueue).toBe(second.outboundQueue);
   });
 });

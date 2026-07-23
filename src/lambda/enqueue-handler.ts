@@ -50,9 +50,27 @@ export function createEnqueueHandlerDeps(
   };
 }
 
+let cachedEnqueueHandlerDeps: EnqueueDeps | undefined;
+
+function resolveDefaultEnqueueHandlerDeps(): EnqueueDeps {
+  if (!cachedEnqueueHandlerDeps) {
+    cachedEnqueueHandlerDeps = createEnqueueHandlerDeps(readEnqueueHandlerEnv());
+  }
+  return cachedEnqueueHandlerDeps;
+}
+
+/** Clears module-scope deps cache (for tests). */
+export function resetEnqueueHandlerDepsCacheForTests(): void {
+  cachedEnqueueHandlerDeps = undefined;
+}
+
+/** Returns the default cached deps resolver (for tests). */
+export function resolveDefaultEnqueueHandlerDepsForTests(): EnqueueDeps {
+  return resolveDefaultEnqueueHandlerDeps();
+}
+
 export function createEnqueueHandler(
-  resolveDeps: () => EnqueueDeps = () =>
-    createEnqueueHandlerDeps(readEnqueueHandlerEnv()),
+  resolveDeps: () => EnqueueDeps = resolveDefaultEnqueueHandlerDeps,
 ) {
   return async (
     event: EnqueueHandlerEvent,

@@ -111,6 +111,36 @@ describe("enqueue", () => {
 
     expect(replay.id).toBe("job-new-2");
     expect(replay.status).toBe("queued");
+    expect(replay.handedOff).toBe(true);
     expect(outboundQueue.messages).toHaveLength(2);
+  });
+
+  it("re-sends to the outbound queue on replay when persist succeeded but handoff failed", async () => {
+    const store = new InMemoryEdiJobStore();
+    const outboundQueue = new InMemoryOutboundQueue();
+    const failingQueue = {
+      send: async () => {
+        throw new Error("sqs unavailable");
+      },
+    };
+    const input = outbound214Input();
+    const baseDeps = {
+      store,
+      now: () => FIXED_TIME,
+      newId: () => "job-new-1",
+    };
+
+    await expect(
+      enqueue({ ...baseDeps, outboundQueue: failingQueue }, input),
+    ).rejects.toThrow("sqs unavailable");
+
+    const replay = await enqueue(
+      { ...baseDeps, outboundQueue },
+      input,
+    );
+
+    expect(replay.id).toBe("job-new-1");
+    expect(replay.handedOff).toBe(true);
+    expect(outboundQueue.messages).toHaveLength(1);
   });
 });

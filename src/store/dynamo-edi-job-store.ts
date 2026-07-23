@@ -1,3 +1,4 @@
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   GetCommand,
@@ -6,12 +7,22 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import type { EdiJob, JobType } from "../domain/edi-job.js";
 import { isIdempotencyReplayable } from "../domain/edi-job.js";
-import type { EdiJobStore } from "./edi-job-store.js";
+import type { EdiJobStore, IdempotencyClaimResult } from "./edi-job-store.js";
 
 export const IDEMPOTENCY_INDEX_NAME = "idempotency-index";
 
 export function idempotencyPk(jobType: JobType, idempotencyKey: string): string {
   return `${jobType}#${idempotencyKey}`;
+}
+
+function isConditionalCheckFailed(error: unknown): boolean {
+  return (
+    error instanceof ConditionalCheckFailedException ||
+    (typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "ConditionalCheckFailedException")
+  );
 }
 
 function toItem(job: EdiJob): Record<string, unknown> {
@@ -28,6 +39,7 @@ function toItem(job: EdiJob): Record<string, unknown> {
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     ...(job.payloadRef ? { payloadRef: job.payloadRef } : {}),
+    ...(job.handedOff ? { handedOff: true } : {}),
   };
 }
 
@@ -40,10 +52,13 @@ function fromItem(item: Record<string, unknown>): EdiJob {
     businessKeys: item.businessKeys as Record<string, string>,
     idempotencyKey: item.idempotencyKey as string,
     orderingGroup: item.orderingGroup as string,
-    payloadRef: item.payloadRef as EdiJob["payloadRef"],
     artifactRefs: (item.artifactRefs as EdiJob["artifactRefs"]) ?? [],
     createdAt: item.createdAt as string,
     updatedAt: item.updatedAt as string,
+    ...(item.payloadRef
+      ? { payloadRef: item.payloadRef as EdiJob["payloadRef"] }
+      : {}),
+    ...(item.handedOff === true ? { handedOff: true } : {}),
   };
 }
 
@@ -57,28 +72,90 @@ export class DynamoEdiJobStore implements EdiJobStore {
     jobType: JobType,
     idempotencyKey: string,
   ): Promise<EdiJob | null> {
-    const result = await this.client.send(
-      new QueryCommand({
-        TableName: this.tableName,
-        IndexName: IDEMPOTENCY_INDEX_NAME,
-        KeyConditionExpression: "idempotencyPk = :pk",
-        ExpressionAttributeValues: {
-          ":pk": idempotencyPk(jobType, idempotencyKey),
-        },
-        Limit: 1,
-      }),
-    );
+    const pk = idempotencyPk(jobType, idempotencyKey);
+    let exclusiveStartKey: Record<string, unknown> | undefined;
 
-    const item = result.Items?.[0];
-    if (!item) {
-      return null;
+    do {
+      const result = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          IndexName: IDEMPOTENCY_INDEX_NAME,
+          KeyConditionExpression: "idempotencyPk = :pk",
+          ExpressionAttributeValues: {
+            ":pk": pk,
+          },
+          ExclusiveStartKey: exclusiveStartKey,
+        }),
+      );
+
+      for (const item of result.Items ?? []) {
+        const job = fromItem(item);
+        if (isIdempotencyReplayable(job.status)) {
+          return job;
+        }
+      }
+
+      exclusiveStartKey = result.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+
+    return null;
+  }
+
+  async claimIdempotencyKey(
+    jobType: JobType,
+    idempotencyKey: string,
+    jobId: string,
+  ): Promise<IdempotencyClaimResult> {
+    const pk = idempotencyPk(jobType, idempotencyKey);
+
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: { id: pk, jobId },
+          ConditionExpression: "attribute_not_exists(id)",
+        }),
+      );
+      return { outcome: "claimed" };
+    } catch (error) {
+      if (!isConditionalCheckFailed(error)) {
+        throw error;
+      }
     }
 
-    const job = fromItem(item);
-    if (!isIdempotencyReplayable(job.status)) {
-      return null;
+    const existingClaim = await this.getIdempotencyClaim(pk);
+    if (!existingClaim) {
+      return this.claimIdempotencyKey(jobType, idempotencyKey, jobId);
     }
-    return job;
+
+    const linkedJob = await this.getById(existingClaim.jobId);
+    if (linkedJob && isIdempotencyReplayable(linkedJob.status)) {
+      return { outcome: "conflict", jobId: existingClaim.jobId };
+    }
+
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: { id: pk, jobId },
+          ConditionExpression: "jobId = :existingJobId",
+          ExpressionAttributeValues: {
+            ":existingJobId": existingClaim.jobId,
+          },
+        }),
+      );
+      return { outcome: "claimed" };
+    } catch (error) {
+      if (!isConditionalCheckFailed(error)) {
+        throw error;
+      }
+    }
+
+    const latestClaim = await this.getIdempotencyClaim(pk);
+    return {
+      outcome: "conflict",
+      jobId: latestClaim?.jobId ?? existingClaim.jobId,
+    };
   }
 
   async getById(id: string): Promise<EdiJob | null> {
@@ -89,7 +166,7 @@ export class DynamoEdiJobStore implements EdiJobStore {
       }),
     );
 
-    if (!result.Item) {
+    if (!result.Item || !("jobType" in result.Item)) {
       return null;
     }
     return fromItem(result.Item);
@@ -103,5 +180,21 @@ export class DynamoEdiJobStore implements EdiJobStore {
       }),
     );
     return job;
+  }
+
+  private async getIdempotencyClaim(
+    pk: string,
+  ): Promise<{ jobId: string } | null> {
+    const result = await this.client.send(
+      new GetCommand({
+        TableName: this.tableName,
+        Key: { id: pk },
+      }),
+    );
+
+    if (!result.Item || typeof result.Item.jobId !== "string") {
+      return null;
+    }
+    return { jobId: result.Item.jobId };
   }
 }
