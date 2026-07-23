@@ -44,13 +44,23 @@ export async function redrive(
     step: undefined,
     durableExecutionId: undefined,
     attempt: jobAttempt(job) + 1,
+    handedOff: false,
     updatedAt: timestamp,
   };
 
   await deps.store.put(redriven);
-  await deps.outboundQueue.send(jobToOutboundMessage(redriven), {
-    messageGroupId: redriven.orderingGroup,
-  });
+  try {
+    await deps.outboundQueue.send(jobToOutboundMessage(redriven), {
+      messageGroupId: redriven.orderingGroup,
+    });
+  } catch (error) {
+    await deps.store.put(job);
+    throw error;
+  }
 
-  return redriven;
+  return deps.store.put({
+    ...redriven,
+    handedOff: true,
+    updatedAt: deps.now?.() ?? new Date().toISOString(),
+  });
 }
