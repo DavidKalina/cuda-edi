@@ -16,6 +16,8 @@ export interface ArtifactRef {
 export interface EdiJob {
   id: string;
   status: JobStatus;
+  /** Progress detail while status is running or failed. */
+  step?: string;
   jobType: JobType;
   ediConfigId: string;
   businessKeys: Record<string, string>;
@@ -25,6 +27,8 @@ export interface EdiJob {
   artifactRefs: ArtifactRef[];
   /** Set after the job is successfully sent to the outbound/inbound queue. */
   handedOff?: boolean;
+  /** AWS Lambda durable execution id for ops correlation. */
+  durableExecutionId?: string;
   createdAt: string;
   updatedAt: string;
 }
