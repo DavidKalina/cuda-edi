@@ -4,6 +4,7 @@ import { buildOutboundX12 } from "./x12-builder.js";
 
 describe("buildOutboundX12", () => {
   const partnerConfig = partnerAEdiConfig();
+  const processedAt = new Date("2026-07-23T12:00:00.000Z");
 
   const controlNumbers = {
     isa: "1000001",
@@ -22,12 +23,13 @@ describe("buildOutboundX12", () => {
       formatIds: partnerConfig.formatIds,
       controlNumbers,
       body: mappedBody,
+      processedAt,
     });
 
     expect(x12).toContain("*001000001*");
-    expect(x12).toContain("GS*QM*CUDACORP*PARTNERA*20260723*0138*500001*");
+    expect(x12).toContain("GS*QM*CUDACORP*PARTNERA*20260723*1200*500001*");
     expect(x12).toContain("ST*214*43~");
-    expect(x12).toContain("SE*3*43~");
+    expect(x12).toContain("SE*4*43~");
     expect(x12).toContain("GE*1*500001~");
     expect(x12).toContain("IEA*1*001000001~");
   });
@@ -38,6 +40,7 @@ describe("buildOutboundX12", () => {
       formatIds: partnerConfig.formatIds,
       controlNumbers,
       body: mappedBody,
+      processedAt,
     });
 
     expect(x12).toContain("B10*SHP-1001~");
@@ -50,6 +53,7 @@ describe("buildOutboundX12", () => {
       formatIds: partnerConfig.formatIds,
       controlNumbers,
       body: mappedBody,
+      processedAt,
     });
 
     expect(x12).toContain("*ZZ*CUDACORP       *ZZ*PARTNERA       *");
@@ -63,6 +67,7 @@ describe("buildOutboundX12", () => {
         formatIds: partnerConfig.formatIds,
         controlNumbers,
         body: {},
+        processedAt,
       }),
     ).toThrow("unsupported outbound transaction set: 997");
   });

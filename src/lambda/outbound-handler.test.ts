@@ -75,9 +75,9 @@ function sqsEventFromQueueMessage(
 }
 
 describe("readOutboundHandlerEnv", () => {
-  it("requires EDI_JOB_TABLE_NAME", () => {
+  it("requires outbound handler env vars", () => {
     expect(() => readOutboundHandlerEnv({})).toThrow(
-      "EDI_JOB_TABLE_NAME must be set",
+      "EDI_JOB_TABLE_NAME, EDI_CONFIG_TABLE_NAME, EDI_CONTROL_NUMBER_TABLE_NAME, and EDI_ARTIFACTS_BUCKET must be set",
     );
   });
 
@@ -85,9 +85,15 @@ describe("readOutboundHandlerEnv", () => {
     expect(
       readOutboundHandlerEnv({
         EDI_JOB_TABLE_NAME: "edi-jobs",
+        EDI_CONFIG_TABLE_NAME: "edi-configs",
+        EDI_CONTROL_NUMBER_TABLE_NAME: "edi-control-numbers",
+        EDI_ARTIFACTS_BUCKET: "edi-artifacts",
       }),
     ).toEqual({
       ediJobTableName: "edi-jobs",
+      ediConfigTableName: "edi-configs",
+      controlNumberTableName: "edi-control-numbers",
+      artifactsBucket: "edi-artifacts",
     });
   });
 });
@@ -96,6 +102,9 @@ describe("createOutboundHandlerDeps", () => {
   it("wires DynamoDB store and outbound processor deps", () => {
     const deps = createOutboundHandlerDeps({
       ediJobTableName: "edi-jobs",
+      ediConfigTableName: "edi-configs",
+      controlNumberTableName: "edi-control-numbers",
+      artifactsBucket: "edi-artifacts",
     });
     expect(deps.store).toBeDefined();
     expect(deps.ediConfigStore).toBeDefined();
@@ -135,7 +144,7 @@ describe("outbound durable Lambda handler", () => {
       jobType: "OUTBOUND_214",
       durableExecutionId: DURABLE_EXECUTION_ID,
     });
-    expect(results[0]!.artifactRefs).toHaveLength(1);
+    expect(results[0]!.artifactRefs).toHaveLength(2);
 
     const stored = artifactStore.getByKey("cfg-partner-a/job-new-1/x12");
     expect(stored).toBeDefined();
@@ -177,6 +186,9 @@ describe("outbound durable Lambda handler", () => {
   it("reuses module-scope deps when using the default resolver", () => {
     resetOutboundHandlerDepsCacheForTests();
     process.env.EDI_JOB_TABLE_NAME = "edi-jobs";
+    process.env.EDI_CONFIG_TABLE_NAME = "edi-configs";
+    process.env.EDI_CONTROL_NUMBER_TABLE_NAME = "edi-control-numbers";
+    process.env.EDI_ARTIFACTS_BUCKET = "edi-artifacts";
 
     const first = resolveDefaultOutboundHandlerDepsForTests();
     const second = resolveDefaultOutboundHandlerDepsForTests();

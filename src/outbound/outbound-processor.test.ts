@@ -14,6 +14,7 @@ import {
 import {
   OUTBOUND_214_DELIVER_STEP,
   OUTBOUND_214_GENERATE_STEP,
+  OUTBOUND_214_VERIFY_STEP,
 } from "./workflows/outbound-214.js";
 import { processOutboundJob } from "./outbound-processor.js";
 
@@ -88,8 +89,13 @@ describe("processOutboundJob", () => {
       durableExecutionId: DURABLE_EXECUTION_ID,
     });
     expect(result.step).toBeUndefined();
-    expect(result.artifactRefs).toHaveLength(1);
+    expect(result.artifactRefs).toHaveLength(2);
     expect(result.artifactRefs[0]).toMatchObject({
+      bucket: "edi-artifacts",
+      key: "cfg-partner-a/job-new-1/verify",
+      kind: "verify",
+    });
+    expect(result.artifactRefs[1]).toMatchObject({
       bucket: "edi-artifacts",
       key: "cfg-partner-a/job-new-1/x12",
       kind: "x12",
@@ -101,7 +107,7 @@ describe("processOutboundJob", () => {
     expect(x12).toContain("B10*SHP-1001~");
     expect(x12).toContain("AT7*AF~");
     expect(x12).toContain("*001000001*");
-    expect(x12).toContain("GS*QM*CUDACORP*PARTNERA*20260723*0138*500001*");
+    expect(x12).toContain("GS*QM*CUDACORP*PARTNERA*20260723*1200*500001*");
     expect(x12).toContain("ST*214*43~");
 
     await expect(
@@ -136,7 +142,7 @@ describe("processOutboundJob", () => {
           store.claimIdempotencyKey(...args),
         getById: (...args: Parameters<typeof store.getById>) => store.getById(...args),
         put: async (job: Parameters<typeof store.put>[0]) => {
-          if (job.step) {
+          if (job.step && job.step !== steps.at(-1)) {
             steps.push(job.step);
           }
           return store.put(job);
@@ -157,8 +163,30 @@ describe("processOutboundJob", () => {
 
     expect(steps).toEqual([
       OUTBOUND_214_GENERATE_STEP,
+      OUTBOUND_214_VERIFY_STEP,
       OUTBOUND_214_DELIVER_STEP,
     ]);
+  });
+
+  it("skips generate when an x12 artifact ref already exists on replay", async () => {
+    const { enqueueDeps, processorDeps, outboundQueue, controlNumberAllocator } =
+      outboundDeps();
+    await enqueue(enqueueDeps, outbound214Input());
+    const message = outboundQueue.messages[0]!.message;
+
+    const first = await processOutboundJob(processorDeps, {
+      message,
+      durableExecutionId: DURABLE_EXECUTION_ID,
+    });
+    const second = await processOutboundJob(processorDeps, {
+      message,
+      durableExecutionId: "durable-exec-replay",
+    });
+
+    expect(second).toEqual(first);
+    await expect(
+      controlNumberAllocator.allocate("cfg-partner-a", "isa"),
+    ).resolves.toBe("1000002");
   });
 
   it("is idempotent when the job already succeeded", async () => {

@@ -1,65 +1,26 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { S3Client } from "@aws-sdk/client-s3";
 import {
   type DurableContext,
   type DurableExecutionHandler,
   withDurableExecution,
 } from "@aws/durable-execution-sdk-js";
-import type { ControlNumberAllocator } from "../control-number/control-number-allocator.js";
+import { S3ArtifactStore } from "../artifact/s3-artifact-store.js";
+import { DynamoControlNumberAllocator } from "../control-number/dynamo-control-number-allocator.js";
 import type { ArtifactStore } from "../artifact/artifact-store.js";
+import type { ControlNumberAllocator } from "../control-number/control-number-allocator.js";
 import type { EdiJob } from "../domain/edi-job.js";
 import type { OutboundQueueMessage } from "../enqueue/outbound-queue.js";
+import { JsonataMapExecutor } from "../map/jsonata-map-executor.js";
 import type { MapExecutor } from "../map/map-executor.js";
 import {
   processOutboundJob,
   type OutboundProcessorDeps,
 } from "../outbound/outbound-processor.js";
+import { DynamoEdiConfigStore } from "../store/dynamo-edi-config-store.js";
 import type { EdiConfigStore } from "../store/edi-config-store.js";
 import { DynamoEdiJobStore } from "../store/dynamo-edi-job-store.js";
-
-function unconfiguredEdiConfigStore(): EdiConfigStore {
-  return {
-    async getById(id: string): Promise<never> {
-      throw new Error(
-        `EdiConfigStore is not configured for outbound handler (missing config: ${id})`,
-      );
-    },
-  };
-}
-
-function unconfiguredControlNumberAllocator(): ControlNumberAllocator {
-  return {
-    async allocate(): Promise<never> {
-      throw new Error(
-        "ControlNumberAllocator is not configured for outbound handler",
-      );
-    },
-    async allocateSet(): Promise<never> {
-      throw new Error(
-        "ControlNumberAllocator is not configured for outbound handler",
-      );
-    },
-  };
-}
-
-function unconfiguredMapExecutor(): MapExecutor {
-  return {
-    async apply(): Promise<never> {
-      throw new Error("MapExecutor is not configured for outbound handler");
-    },
-    async applyTransactionSetMap(): Promise<never> {
-      throw new Error("MapExecutor is not configured for outbound handler");
-    },
-  };
-}
-
-function unconfiguredArtifactStore(): ArtifactStore {
-  return {
-    async put(): Promise<never> {
-      throw new Error("ArtifactStore is not configured for outbound handler");
-    },
-  };
-}
 
 /** Minimal SQS FIFO trigger shape — only fields the handler reads. */
 export interface OutboundSqsRecord {
@@ -72,22 +33,41 @@ export interface OutboundSqsEvent {
 
 export interface OutboundHandlerEnv {
   ediJobTableName: string;
+  ediConfigTableName: string;
+  controlNumberTableName: string;
+  artifactsBucket: string;
 }
 
 export function readOutboundHandlerEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): OutboundHandlerEnv {
   const ediJobTableName = env.EDI_JOB_TABLE_NAME;
-  if (!ediJobTableName) {
-    throw new Error("EDI_JOB_TABLE_NAME must be set");
+  const ediConfigTableName = env.EDI_CONFIG_TABLE_NAME;
+  const controlNumberTableName = env.EDI_CONTROL_NUMBER_TABLE_NAME;
+  const artifactsBucket = env.EDI_ARTIFACTS_BUCKET;
+  if (
+    !ediJobTableName ||
+    !ediConfigTableName ||
+    !controlNumberTableName ||
+    !artifactsBucket
+  ) {
+    throw new Error(
+      "EDI_JOB_TABLE_NAME, EDI_CONFIG_TABLE_NAME, EDI_CONTROL_NUMBER_TABLE_NAME, and EDI_ARTIFACTS_BUCKET must be set",
+    );
   }
-  return { ediJobTableName };
+  return {
+    ediJobTableName,
+    ediConfigTableName,
+    controlNumberTableName,
+    artifactsBucket,
+  };
 }
 
 export function createOutboundHandlerDeps(
   config: OutboundHandlerEnv,
   clients?: {
     dynamo?: DynamoDBDocumentClient;
+    s3?: S3Client;
     ediConfigStore?: EdiConfigStore;
     controlNumberAllocator?: ControlNumberAllocator;
     mapExecutor?: MapExecutor;
@@ -99,15 +79,20 @@ export function createOutboundHandlerDeps(
     DynamoDBDocumentClient.from(new DynamoDBClient({}), {
       marshallOptions: { removeUndefinedValues: true },
     });
+  const s3 = clients?.s3 ?? new S3Client({});
 
   return {
     store: new DynamoEdiJobStore(dynamo, config.ediJobTableName),
     ediConfigStore:
-      clients?.ediConfigStore ?? unconfiguredEdiConfigStore(),
+      clients?.ediConfigStore ??
+      new DynamoEdiConfigStore(dynamo, config.ediConfigTableName),
     controlNumberAllocator:
-      clients?.controlNumberAllocator ?? unconfiguredControlNumberAllocator(),
-    mapExecutor: clients?.mapExecutor ?? unconfiguredMapExecutor(),
-    artifactStore: clients?.artifactStore ?? unconfiguredArtifactStore(),
+      clients?.controlNumberAllocator ??
+      new DynamoControlNumberAllocator(dynamo, config.controlNumberTableName),
+    mapExecutor: clients?.mapExecutor ?? new JsonataMapExecutor(),
+    artifactStore:
+      clients?.artifactStore ??
+      new S3ArtifactStore(s3, config.artifactsBucket),
   };
 }
 
