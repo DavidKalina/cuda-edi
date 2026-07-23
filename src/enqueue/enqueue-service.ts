@@ -6,10 +6,8 @@ import {
   type EdiJob,
 } from "../domain/edi-job.js";
 import { findReplayableJob, type EdiJobStore } from "../store/edi-job-store.js";
-import type {
-  OutboundQueue,
-  OutboundQueueMessage,
-} from "./outbound-queue.js";
+import type { OutboundQueue } from "./outbound-queue.js";
+import { jobToOutboundMessage } from "./outbound-queue.js";
 
 export interface EnqueueDeps {
   store: EdiJobStore;
@@ -18,23 +16,11 @@ export interface EnqueueDeps {
   newId?: () => string;
 }
 
-function buildOutboundMessage(job: EdiJob): OutboundQueueMessage {
-  return {
-    jobId: job.id,
-    jobType: job.jobType,
-    ediConfigId: job.ediConfigId,
-    businessKeys: job.businessKeys,
-    idempotencyKey: job.idempotencyKey,
-    orderingGroup: job.orderingGroup,
-    ...(job.payloadRef ? { payloadRef: job.payloadRef } : {}),
-  };
-}
-
 async function sendOutboundMessage(
   deps: EnqueueDeps,
   job: EdiJob,
 ): Promise<void> {
-  await deps.outboundQueue.send(buildOutboundMessage(job), {
+  await deps.outboundQueue.send(jobToOutboundMessage(job), {
     messageGroupId: job.orderingGroup,
   });
 }
@@ -89,6 +75,7 @@ export async function enqueue(
     orderingGroup,
     payloadRef: input.payloadRef,
     artifactRefs: [],
+    attempt: 1,
     handedOff: false,
     createdAt: timestamp,
     updatedAt: timestamp,
