@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { InMemoryArtifactStore } from "../artifact/in-memory-artifact-store.js";
 import { InMemoryControlNumberAllocator } from "../control-number/in-memory-control-number-allocator.js";
 import { SHIPMENT_BUSINESS_KEY } from "../domain/edi-job.js";
 import { enqueue } from "../enqueue/enqueue-service.js";
 import { InMemoryOutboundQueue } from "../enqueue/in-memory-outbound-queue.js";
+import { JsonataMapExecutor } from "../map/jsonata-map-executor.js";
 import { InMemoryEdiConfigStore } from "../store/in-memory-edi-config-store.js";
 import { InMemoryEdiJobStore } from "../store/in-memory-edi-job-store.js";
 import {
@@ -25,11 +27,15 @@ function outboundDeps() {
   const controlNumberAllocator = new InMemoryControlNumberAllocator(
     partnerAControlNumberSeeds(),
   );
+  const mapExecutor = new JsonataMapExecutor();
+  const artifactStore = new InMemoryArtifactStore();
   return {
     store,
     outboundQueue,
     ediConfigStore,
     controlNumberAllocator,
+    mapExecutor,
+    artifactStore,
     enqueueDeps: {
       store,
       outboundQueue,
@@ -40,6 +46,8 @@ function outboundDeps() {
       store,
       ediConfigStore,
       controlNumberAllocator,
+      mapExecutor,
+      artifactStore,
       now: () => FIXED_TIME,
     },
   };
@@ -55,8 +63,14 @@ function outbound214Input() {
 }
 
 describe("processOutboundJob", () => {
-  it("runs the OUTBOUND_214 stub workflow through succeeded", async () => {
-    const { enqueueDeps, processorDeps, outboundQueue } = outboundDeps();
+  it("runs OUTBOUND_214 through succeeded with X12 artifact refs", async () => {
+    const {
+      enqueueDeps,
+      processorDeps,
+      outboundQueue,
+      artifactStore,
+      controlNumberAllocator,
+    } = outboundDeps();
     const queued = await enqueue(enqueueDeps, outbound214Input());
 
     expect(queued.status).toBe("queued");
@@ -74,6 +88,25 @@ describe("processOutboundJob", () => {
       durableExecutionId: DURABLE_EXECUTION_ID,
     });
     expect(result.step).toBeUndefined();
+    expect(result.artifactRefs).toHaveLength(1);
+    expect(result.artifactRefs[0]).toMatchObject({
+      bucket: "edi-artifacts",
+      key: "cfg-partner-a/job-new-1/x12",
+      kind: "x12",
+    });
+
+    const stored = artifactStore.getByKey("cfg-partner-a/job-new-1/x12");
+    expect(stored).toBeDefined();
+    const x12 = new TextDecoder().decode(stored!.content);
+    expect(x12).toContain("B10*SHP-1001~");
+    expect(x12).toContain("AT7*AF~");
+    expect(x12).toContain("*001000001*");
+    expect(x12).toContain("GS*QM*CUDACORP*PARTNERA*20260723*0138*500001*");
+    expect(x12).toContain("ST*214*43~");
+
+    await expect(
+      controlNumberAllocator.allocate("cfg-partner-a", "isa"),
+    ).resolves.toBe("1000002");
 
     const persisted = await processorDeps.store.getById("job-new-1");
     expect(persisted).toEqual(result);
@@ -87,6 +120,8 @@ describe("processOutboundJob", () => {
     const controlNumberAllocator = new InMemoryControlNumberAllocator(
       partnerAControlNumberSeeds(),
     );
+    const mapExecutor = new JsonataMapExecutor();
+    const artifactStore = new InMemoryArtifactStore();
     const enqueueDeps = {
       store,
       outboundQueue,
@@ -109,6 +144,8 @@ describe("processOutboundJob", () => {
       },
       ediConfigStore,
       controlNumberAllocator,
+      mapExecutor,
+      artifactStore,
       now: () => FIXED_TIME,
     };
 
@@ -147,6 +184,8 @@ describe("processOutboundJob", () => {
     const controlNumberAllocator = new InMemoryControlNumberAllocator(
       partnerAControlNumberSeeds(),
     );
+    const mapExecutor = new JsonataMapExecutor();
+    const artifactStore = new InMemoryArtifactStore();
     const now = FIXED_TIME;
     await store.put({
       id: "job-997",
@@ -163,7 +202,14 @@ describe("processOutboundJob", () => {
 
     await expect(
       processOutboundJob(
-        { store, ediConfigStore, controlNumberAllocator, now: () => FIXED_TIME },
+        {
+          store,
+          ediConfigStore,
+          controlNumberAllocator,
+          mapExecutor,
+          artifactStore,
+          now: () => FIXED_TIME,
+        },
         {
           message: {
             jobId: "job-997",
@@ -187,6 +233,8 @@ describe("processOutboundJob", () => {
       controlNumberAllocator: new InMemoryControlNumberAllocator(
         partnerAControlNumberSeeds(),
       ),
+      mapExecutor: new JsonataMapExecutor(),
+      artifactStore: new InMemoryArtifactStore(),
       now: () => FIXED_TIME,
     };
 

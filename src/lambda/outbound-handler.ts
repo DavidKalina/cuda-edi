@@ -6,8 +6,10 @@ import {
   withDurableExecution,
 } from "@aws/durable-execution-sdk-js";
 import type { ControlNumberAllocator } from "../control-number/control-number-allocator.js";
+import type { ArtifactStore } from "../artifact/artifact-store.js";
 import type { EdiJob } from "../domain/edi-job.js";
 import type { OutboundQueueMessage } from "../enqueue/outbound-queue.js";
+import type { MapExecutor } from "../map/map-executor.js";
 import {
   processOutboundJob,
   type OutboundProcessorDeps,
@@ -36,6 +38,25 @@ function unconfiguredControlNumberAllocator(): ControlNumberAllocator {
       throw new Error(
         "ControlNumberAllocator is not configured for outbound handler",
       );
+    },
+  };
+}
+
+function unconfiguredMapExecutor(): MapExecutor {
+  return {
+    async apply(): Promise<never> {
+      throw new Error("MapExecutor is not configured for outbound handler");
+    },
+    async applyTransactionSetMap(): Promise<never> {
+      throw new Error("MapExecutor is not configured for outbound handler");
+    },
+  };
+}
+
+function unconfiguredArtifactStore(): ArtifactStore {
+  return {
+    async put(): Promise<never> {
+      throw new Error("ArtifactStore is not configured for outbound handler");
     },
   };
 }
@@ -69,6 +90,8 @@ export function createOutboundHandlerDeps(
     dynamo?: DynamoDBDocumentClient;
     ediConfigStore?: EdiConfigStore;
     controlNumberAllocator?: ControlNumberAllocator;
+    mapExecutor?: MapExecutor;
+    artifactStore?: ArtifactStore;
   },
 ): OutboundProcessorDeps {
   const dynamo =
@@ -83,6 +106,8 @@ export function createOutboundHandlerDeps(
       clients?.ediConfigStore ?? unconfiguredEdiConfigStore(),
     controlNumberAllocator:
       clients?.controlNumberAllocator ?? unconfiguredControlNumberAllocator(),
+    mapExecutor: clients?.mapExecutor ?? unconfiguredMapExecutor(),
+    artifactStore: clients?.artifactStore ?? unconfiguredArtifactStore(),
   };
 }
 

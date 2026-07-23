@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { InMemoryArtifactStore } from "../artifact/in-memory-artifact-store.js";
 import { InMemoryControlNumberAllocator } from "../control-number/in-memory-control-number-allocator.js";
 import { SHIPMENT_BUSINESS_KEY } from "../domain/edi-job.js";
 import { enqueue } from "../enqueue/enqueue-service.js";
 import { InMemoryOutboundQueue } from "../enqueue/in-memory-outbound-queue.js";
+import { JsonataMapExecutor } from "../map/jsonata-map-executor.js";
 import { InMemoryEdiConfigStore } from "../store/in-memory-edi-config-store.js";
 import { InMemoryEdiJobStore } from "../store/in-memory-edi-job-store.js";
 import {
@@ -32,9 +34,12 @@ function handlerDeps() {
   const controlNumberAllocator = new InMemoryControlNumberAllocator(
     partnerAControlNumberSeeds(),
   );
+  const mapExecutor = new JsonataMapExecutor();
+  const artifactStore = new InMemoryArtifactStore();
   return {
     store,
     outboundQueue,
+    artifactStore,
     enqueueDeps: {
       store,
       outboundQueue,
@@ -45,6 +50,8 @@ function handlerDeps() {
       store,
       ediConfigStore,
       controlNumberAllocator,
+      mapExecutor,
+      artifactStore,
       now: () => FIXED_TIME,
     },
   };
@@ -93,6 +100,8 @@ describe("createOutboundHandlerDeps", () => {
     expect(deps.store).toBeDefined();
     expect(deps.ediConfigStore).toBeDefined();
     expect(deps.controlNumberAllocator).toBeDefined();
+    expect(deps.mapExecutor).toBeDefined();
+    expect(deps.artifactStore).toBeDefined();
   });
 });
 
@@ -108,7 +117,8 @@ describe("readDurableExecutionId", () => {
 
 describe("outbound durable Lambda handler", () => {
   it("consumes an SQS FIFO message and runs OUTBOUND_214 through succeeded", async () => {
-    const { enqueueDeps, processorDeps, outboundQueue } = handlerDeps();
+    const { enqueueDeps, processorDeps, outboundQueue, artifactStore } =
+      handlerDeps();
     await enqueue(enqueueDeps, outbound214Input());
     const event = sqsEventFromQueueMessage(outboundQueue.messages[0]!.message);
 
@@ -125,6 +135,12 @@ describe("outbound durable Lambda handler", () => {
       jobType: "OUTBOUND_214",
       durableExecutionId: DURABLE_EXECUTION_ID,
     });
+    expect(results[0]!.artifactRefs).toHaveLength(1);
+
+    const stored = artifactStore.getByKey("cfg-partner-a/job-new-1/x12");
+    expect(stored).toBeDefined();
+    const x12 = new TextDecoder().decode(stored!.content);
+    expect(x12).toContain("B10*SHP-1001~");
 
     const persisted = await processorDeps.store.getById("job-new-1");
     expect(persisted).toEqual(results[0]);

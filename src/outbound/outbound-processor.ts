@@ -1,5 +1,7 @@
+import type { ArtifactStore } from "../artifact/artifact-store.js";
 import type { ControlNumberAllocator } from "../control-number/control-number-allocator.js";
 import type { EdiJob, JobType } from "../domain/edi-job.js";
+import type { MapExecutor } from "../map/map-executor.js";
 import type { EdiConfigStore } from "../store/edi-config-store.js";
 import type { EdiJobStore } from "../store/edi-job-store.js";
 import type { OutboundQueueMessage } from "../enqueue/outbound-queue.js";
@@ -10,6 +12,8 @@ export interface OutboundProcessorDeps {
   store: EdiJobStore;
   ediConfigStore: EdiConfigStore;
   controlNumberAllocator: ControlNumberAllocator;
+  mapExecutor: MapExecutor;
+  artifactStore: ArtifactStore;
   now?: () => string;
 }
 
