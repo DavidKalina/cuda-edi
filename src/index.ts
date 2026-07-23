@@ -1,4 +1,5 @@
 export * from "./domain/edi-job.js";
+export * from "./sdk/enqueue-client.js";
 export * from "./enqueue/enqueue-service.js";
 export * from "./enqueue/in-memory-outbound-queue.js";
 export * from "./enqueue/outbound-queue.js";
