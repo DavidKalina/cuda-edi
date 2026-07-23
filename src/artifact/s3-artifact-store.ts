@@ -1,0 +1,33 @@
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import type { ArtifactRef } from "../domain/edi-job.js";
+import type { ArtifactStore, StoreArtifactInput } from "./artifact-store.js";
+
+export class S3ArtifactStore implements ArtifactStore {
+  constructor(
+    private readonly client: S3Client,
+    private readonly bucket: string,
+  ) {}
+
+  async put(input: StoreArtifactInput): Promise<ArtifactRef> {
+    const key = `${input.ediConfigId}/${input.jobId}/${input.kind}`;
+    const body =
+      typeof input.content === "string"
+        ? new TextEncoder().encode(input.content)
+        : input.content;
+
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ...(input.contentType ? { ContentType: input.contentType } : {}),
+      }),
+    );
+
+    return {
+      bucket: this.bucket,
+      key,
+      kind: input.kind,
+    };
+  }
+}

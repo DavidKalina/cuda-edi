@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { InMemoryArtifactStore } from "../artifact/in-memory-artifact-store.js";
+import { InMemoryControlNumberAllocator } from "../control-number/in-memory-control-number-allocator.js";
 import { SHIPMENT_BUSINESS_KEY } from "../domain/edi-job.js";
 import { enqueue } from "../enqueue/enqueue-service.js";
 import { InMemoryOutboundQueue } from "../enqueue/in-memory-outbound-queue.js";
+import { JsonataMapExecutor } from "../map/jsonata-map-executor.js";
+import { InMemoryEdiConfigStore } from "../store/in-memory-edi-config-store.js";
 import { InMemoryEdiJobStore } from "../store/in-memory-edi-job-store.js";
+import {
+  partnerAControlNumberSeeds,
+  partnerAEdiConfig,
+} from "../test-fixtures/partner-a-edi-config.js";
 import {
   OUTBOUND_214_DELIVER_STEP,
   OUTBOUND_214_GENERATE_STEP,
+  OUTBOUND_214_VERIFY_STEP,
 } from "./workflows/outbound-214.js";
 import { processOutboundJob } from "./outbound-processor.js";
 
@@ -15,9 +24,19 @@ const DURABLE_EXECUTION_ID = "durable-exec-abc123";
 function outboundDeps() {
   const store = new InMemoryEdiJobStore();
   const outboundQueue = new InMemoryOutboundQueue();
+  const ediConfigStore = new InMemoryEdiConfigStore([partnerAEdiConfig()]);
+  const controlNumberAllocator = new InMemoryControlNumberAllocator(
+    partnerAControlNumberSeeds(),
+  );
+  const mapExecutor = new JsonataMapExecutor();
+  const artifactStore = new InMemoryArtifactStore();
   return {
     store,
     outboundQueue,
+    ediConfigStore,
+    controlNumberAllocator,
+    mapExecutor,
+    artifactStore,
     enqueueDeps: {
       store,
       outboundQueue,
@@ -26,6 +45,10 @@ function outboundDeps() {
     },
     processorDeps: {
       store,
+      ediConfigStore,
+      controlNumberAllocator,
+      mapExecutor,
+      artifactStore,
       now: () => FIXED_TIME,
     },
   };
@@ -41,8 +64,14 @@ function outbound214Input() {
 }
 
 describe("processOutboundJob", () => {
-  it("runs the OUTBOUND_214 stub workflow through succeeded", async () => {
-    const { enqueueDeps, processorDeps, outboundQueue } = outboundDeps();
+  it("runs OUTBOUND_214 through succeeded with X12 artifact refs", async () => {
+    const {
+      enqueueDeps,
+      processorDeps,
+      outboundQueue,
+      artifactStore,
+      controlNumberAllocator,
+    } = outboundDeps();
     const queued = await enqueue(enqueueDeps, outbound214Input());
 
     expect(queued.status).toBe("queued");
@@ -60,6 +89,30 @@ describe("processOutboundJob", () => {
       durableExecutionId: DURABLE_EXECUTION_ID,
     });
     expect(result.step).toBeUndefined();
+    expect(result.artifactRefs).toHaveLength(2);
+    expect(result.artifactRefs[0]).toMatchObject({
+      bucket: "edi-artifacts",
+      key: "cfg-partner-a/job-new-1/verify",
+      kind: "verify",
+    });
+    expect(result.artifactRefs[1]).toMatchObject({
+      bucket: "edi-artifacts",
+      key: "cfg-partner-a/job-new-1/x12",
+      kind: "x12",
+    });
+
+    const stored = artifactStore.getByKey("cfg-partner-a/job-new-1/x12");
+    expect(stored).toBeDefined();
+    const x12 = new TextDecoder().decode(stored!.content);
+    expect(x12).toContain("B10*SHP-1001~");
+    expect(x12).toContain("AT7*AF~");
+    expect(x12).toContain("*001000001*");
+    expect(x12).toContain("GS*QM*CUDACORP*PARTNERA*20260723*1200*500001*");
+    expect(x12).toContain("ST*214*43~");
+
+    await expect(
+      controlNumberAllocator.allocate("cfg-partner-a", "isa"),
+    ).resolves.toBe("1000002");
 
     const persisted = await processorDeps.store.getById("job-new-1");
     expect(persisted).toEqual(result);
@@ -69,6 +122,12 @@ describe("processOutboundJob", () => {
     const steps: string[] = [];
     const store = new InMemoryEdiJobStore();
     const outboundQueue = new InMemoryOutboundQueue();
+    const ediConfigStore = new InMemoryEdiConfigStore([partnerAEdiConfig()]);
+    const controlNumberAllocator = new InMemoryControlNumberAllocator(
+      partnerAControlNumberSeeds(),
+    );
+    const mapExecutor = new JsonataMapExecutor();
+    const artifactStore = new InMemoryArtifactStore();
     const enqueueDeps = {
       store,
       outboundQueue,
@@ -83,12 +142,16 @@ describe("processOutboundJob", () => {
           store.claimIdempotencyKey(...args),
         getById: (...args: Parameters<typeof store.getById>) => store.getById(...args),
         put: async (job: Parameters<typeof store.put>[0]) => {
-          if (job.step) {
+          if (job.step && job.step !== steps.at(-1)) {
             steps.push(job.step);
           }
           return store.put(job);
         },
       },
+      ediConfigStore,
+      controlNumberAllocator,
+      mapExecutor,
+      artifactStore,
       now: () => FIXED_TIME,
     };
 
@@ -100,8 +163,30 @@ describe("processOutboundJob", () => {
 
     expect(steps).toEqual([
       OUTBOUND_214_GENERATE_STEP,
+      OUTBOUND_214_VERIFY_STEP,
       OUTBOUND_214_DELIVER_STEP,
     ]);
+  });
+
+  it("skips generate when an x12 artifact ref already exists on replay", async () => {
+    const { enqueueDeps, processorDeps, outboundQueue, controlNumberAllocator } =
+      outboundDeps();
+    await enqueue(enqueueDeps, outbound214Input());
+    const message = outboundQueue.messages[0]!.message;
+
+    const first = await processOutboundJob(processorDeps, {
+      message,
+      durableExecutionId: DURABLE_EXECUTION_ID,
+    });
+    const second = await processOutboundJob(processorDeps, {
+      message,
+      durableExecutionId: "durable-exec-replay",
+    });
+
+    expect(second).toEqual(first);
+    await expect(
+      controlNumberAllocator.allocate("cfg-partner-a", "isa"),
+    ).resolves.toBe("1000002");
   });
 
   it("is idempotent when the job already succeeded", async () => {
@@ -123,6 +208,12 @@ describe("processOutboundJob", () => {
 
   it("rejects unsupported outbound job types", async () => {
     const store = new InMemoryEdiJobStore();
+    const ediConfigStore = new InMemoryEdiConfigStore([partnerAEdiConfig()]);
+    const controlNumberAllocator = new InMemoryControlNumberAllocator(
+      partnerAControlNumberSeeds(),
+    );
+    const mapExecutor = new JsonataMapExecutor();
+    const artifactStore = new InMemoryArtifactStore();
     const now = FIXED_TIME;
     await store.put({
       id: "job-997",
@@ -139,7 +230,14 @@ describe("processOutboundJob", () => {
 
     await expect(
       processOutboundJob(
-        { store, now: () => FIXED_TIME },
+        {
+          store,
+          ediConfigStore,
+          controlNumberAllocator,
+          mapExecutor,
+          artifactStore,
+          now: () => FIXED_TIME,
+        },
         {
           message: {
             jobId: "job-997",
@@ -153,5 +251,28 @@ describe("processOutboundJob", () => {
         },
       ),
     ).rejects.toThrow("unsupported outbound job type: OUTBOUND_997");
+  });
+
+  it("fails when EDI Config is missing during generate", async () => {
+    const { enqueueDeps, outboundQueue } = outboundDeps();
+    const processorDeps = {
+      store: enqueueDeps.store,
+      ediConfigStore: new InMemoryEdiConfigStore(),
+      controlNumberAllocator: new InMemoryControlNumberAllocator(
+        partnerAControlNumberSeeds(),
+      ),
+      mapExecutor: new JsonataMapExecutor(),
+      artifactStore: new InMemoryArtifactStore(),
+      now: () => FIXED_TIME,
+    };
+
+    await enqueue(enqueueDeps, outbound214Input());
+
+    await expect(
+      processOutboundJob(processorDeps, {
+        message: outboundQueue.messages[0]!.message,
+        durableExecutionId: DURABLE_EXECUTION_ID,
+      }),
+    ).rejects.toThrow("EDI Config not found: cfg-partner-a");
   });
 });

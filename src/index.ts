@@ -1,3 +1,11 @@
+export * from "./artifact/artifact-store.js";
+export * from "./artifact/in-memory-artifact-store.js";
+export * from "./artifact/s3-artifact-store.js";
+export * from "./control-number/control-number-allocator.js";
+export * from "./control-number/in-memory-control-number-allocator.js";
+export * from "./control-number/dynamo-control-number-allocator.js";
+export * from "./domain/control-number.js";
+export * from "./domain/edi-config.js";
 export * from "./domain/edi-job.js";
 export * from "./sdk/enqueue-client.js";
 export * from "./enqueue/enqueue-service.js";
@@ -29,8 +37,14 @@ export {
   type OutboundSqsEvent,
   type OutboundSqsRecord,
 } from "./lambda/outbound-handler.js";
+export * from "./map/jsonata-map-executor.js";
+export * from "./map/map-executor.js";
 export * from "./outbound/outbound-processor.js";
 export * from "./outbound/workflows/outbound-214.js";
+export * from "./store/edi-config-store.js";
 export * from "./store/dynamo-edi-job-store.js";
+export * from "./store/in-memory-edi-config-store.js";
+export * from "./store/dynamo-edi-config-store.js";
 export * from "./store/edi-job-store.js";
 export * from "./store/in-memory-edi-job-store.js";
+export * from "./x12/x12-builder.js";
