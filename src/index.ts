@@ -33,6 +33,8 @@ export {
   type OutboundSqsEvent,
   type OutboundSqsRecord,
 } from "./lambda/outbound-handler.js";
+export * from "./map/jsonata-map-executor.js";
+export * from "./map/map-executor.js";
 export * from "./outbound/outbound-processor.js";
 export * from "./outbound/workflows/outbound-214.js";
 export * from "./store/edi-config-store.js";
