@@ -39,5 +39,6 @@ describe("InMemoryArtifactStore", () => {
 
     const stored = store.getByKey(ref.key);
     expect(stored?.content).toEqual(bytes);
+    await expect(store.get(ref)).resolves.toEqual(bytes);
   });
 });

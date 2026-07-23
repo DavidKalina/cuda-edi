@@ -1,4 +1,5 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { NoSuchKey } from "@aws-sdk/client-s3";
 import type { ArtifactRef } from "../domain/edi-job.js";
 import type { ArtifactStore, StoreArtifactInput } from "./artifact-store.js";
 
@@ -29,5 +30,23 @@ export class S3ArtifactStore implements ArtifactStore {
       key,
       kind: input.kind,
     };
+  }
+
+  async get(ref: ArtifactRef): Promise<Uint8Array | undefined> {
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({
+          Bucket: ref.bucket,
+          Key: ref.key,
+        }),
+      );
+      const bytes = await response.Body?.transformToByteArray();
+      return bytes;
+    } catch (error) {
+      if (error instanceof NoSuchKey) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 }

@@ -4,6 +4,8 @@ import { InMemoryControlNumberAllocator } from "../control-number/in-memory-cont
 import { SHIPMENT_BUSINESS_KEY } from "../domain/edi-job.js";
 import { enqueue } from "../enqueue/enqueue-service.js";
 import { InMemoryOutboundQueue } from "../enqueue/in-memory-outbound-queue.js";
+import { InMemoryPartnerMailboxClient } from "../mailbox/in-memory-partner-mailbox-client.js";
+import { resolveOutbound214MailboxPath } from "../mailbox/resolve-outbound-214-path.js";
 import { JsonataMapExecutor } from "../map/jsonata-map-executor.js";
 import { InMemoryEdiConfigStore } from "../store/in-memory-edi-config-store.js";
 import { InMemoryEdiJobStore } from "../store/in-memory-edi-job-store.js";
@@ -36,10 +38,12 @@ function handlerDeps() {
   );
   const mapExecutor = new JsonataMapExecutor();
   const artifactStore = new InMemoryArtifactStore();
+  const partnerMailboxClient = new InMemoryPartnerMailboxClient();
   return {
     store,
     outboundQueue,
     artifactStore,
+    partnerMailboxClient,
     enqueueDeps: {
       store,
       outboundQueue,
@@ -52,6 +56,7 @@ function handlerDeps() {
       controlNumberAllocator,
       mapExecutor,
       artifactStore,
+      partnerMailboxClient,
       now: () => FIXED_TIME,
     },
   };
@@ -100,17 +105,22 @@ describe("readOutboundHandlerEnv", () => {
 
 describe("createOutboundHandlerDeps", () => {
   it("wires DynamoDB store and outbound processor deps", () => {
-    const deps = createOutboundHandlerDeps({
-      ediJobTableName: "edi-jobs",
-      ediConfigTableName: "edi-configs",
-      controlNumberTableName: "edi-control-numbers",
-      artifactsBucket: "edi-artifacts",
-    });
+    const partnerMailboxClient = new InMemoryPartnerMailboxClient();
+    const deps = createOutboundHandlerDeps(
+      {
+        ediJobTableName: "edi-jobs",
+        ediConfigTableName: "edi-configs",
+        controlNumberTableName: "edi-control-numbers",
+        artifactsBucket: "edi-artifacts",
+      },
+      { partnerMailboxClient },
+    );
     expect(deps.store).toBeDefined();
     expect(deps.ediConfigStore).toBeDefined();
     expect(deps.controlNumberAllocator).toBeDefined();
     expect(deps.mapExecutor).toBeDefined();
     expect(deps.artifactStore).toBeDefined();
+    expect(deps.partnerMailboxClient).toBe(partnerMailboxClient);
   });
 });
 
@@ -126,8 +136,13 @@ describe("readDurableExecutionId", () => {
 
 describe("outbound durable Lambda handler", () => {
   it("consumes an SQS FIFO message and runs OUTBOUND_214 through succeeded", async () => {
-    const { enqueueDeps, processorDeps, outboundQueue, artifactStore } =
-      handlerDeps();
+    const {
+      enqueueDeps,
+      processorDeps,
+      outboundQueue,
+      artifactStore,
+      partnerMailboxClient,
+    } = handlerDeps();
     await enqueue(enqueueDeps, outbound214Input());
     const event = sqsEventFromQueueMessage(outboundQueue.messages[0]!.message);
 
@@ -150,6 +165,14 @@ describe("outbound durable Lambda handler", () => {
     expect(stored).toBeDefined();
     const x12 = new TextDecoder().decode(stored!.content);
     expect(x12).toContain("B10*SHP-1001~");
+
+    const mailboxPath = resolveOutbound214MailboxPath(
+      partnerAEdiConfig(),
+      results[0]!,
+    );
+    expect(partnerMailboxClient.getFile(mailboxPath)?.content).toEqual(
+      stored!.content,
+    );
 
     const persisted = await processorDeps.store.getById("job-new-1");
     expect(persisted).toEqual(results[0]);
@@ -189,6 +212,9 @@ describe("outbound durable Lambda handler", () => {
     process.env.EDI_CONFIG_TABLE_NAME = "edi-configs";
     process.env.EDI_CONTROL_NUMBER_TABLE_NAME = "edi-control-numbers";
     process.env.EDI_ARTIFACTS_BUCKET = "edi-artifacts";
+    process.env.EDI_MAILBOX_SFTP_HOST = "sftp.example.com";
+    process.env.EDI_MAILBOX_SFTP_USERNAME = "cuda";
+    process.env.EDI_MAILBOX_SFTP_PASSWORD = "secret";
 
     const first = resolveDefaultOutboundHandlerDepsForTests();
     const second = resolveDefaultOutboundHandlerDepsForTests();

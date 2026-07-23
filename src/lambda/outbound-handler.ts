@@ -12,6 +12,11 @@ import type { ArtifactStore } from "../artifact/artifact-store.js";
 import type { ControlNumberAllocator } from "../control-number/control-number-allocator.js";
 import type { EdiJob } from "../domain/edi-job.js";
 import type { OutboundQueueMessage } from "../enqueue/outbound-queue.js";
+import type { PartnerMailboxClient } from "../mailbox/partner-mailbox-client.js";
+import {
+  readSftpPartnerMailboxClientEnv,
+  SftpPartnerMailboxClient,
+} from "../mailbox/sftp-partner-mailbox-client.js";
 import { JsonataMapExecutor } from "../map/jsonata-map-executor.js";
 import type { MapExecutor } from "../map/map-executor.js";
 import {
@@ -72,6 +77,7 @@ export function createOutboundHandlerDeps(
     controlNumberAllocator?: ControlNumberAllocator;
     mapExecutor?: MapExecutor;
     artifactStore?: ArtifactStore;
+    partnerMailboxClient?: PartnerMailboxClient;
   },
 ): OutboundProcessorDeps {
   const dynamo =
@@ -93,6 +99,9 @@ export function createOutboundHandlerDeps(
     artifactStore:
       clients?.artifactStore ??
       new S3ArtifactStore(s3, config.artifactsBucket),
+    partnerMailboxClient:
+      clients?.partnerMailboxClient ??
+      new SftpPartnerMailboxClient(readSftpPartnerMailboxClientEnv()),
   };
 }
 
